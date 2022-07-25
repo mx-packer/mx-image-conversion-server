@@ -1,0 +1,32 @@
+﻿<!DOCTYPE HTML>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/favicon.ico">
+    <title>MX ICS - Index</title>
+</head>
+<body>
+    <h1>MX Image Converter Server</h1>
+    <div>
+        <h2>User Manual</h2>
+
+        <p>Request to &#39;/convert&#39; using GET method.&nbsp;You can use the following factors.</p>
+
+        <ul>
+            <li>*type : png / avif</li>
+            <li>*path : urlencoded file path</li>
+            <li>q : 0~100 =&gt; Q(Quality) factor</li>
+            <li>effort : 0~9 =&gt; CPU effort</li>
+            <li>lossless : 0 =&gt; use lossless compression(only avif)</li>
+            <li>useSubsampling : 0 =&gt; use chroma subsampling(only avif)</li>
+            <li>compression : 0~9 =&gt; compression level(only png)</li>
+            <li>interlace : 0 =&gt; use interlace(only png)</li>
+        </ul>
+
+        <p>※ The &#39;*&#39; sign is attached to the required factors.</p>
+
+    </div>
+</body>
+</html>
