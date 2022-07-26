@@ -2,6 +2,7 @@
 using Serilog;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Reflection;
@@ -15,6 +16,7 @@ namespace ImageConverterServer
     {
         private readonly HttpListener _listener = new();
         private readonly TaskCompletionSource<bool> _cancellationSource = new();
+        private readonly Stopwatch _stopwatch = new Stopwatch();
 
         internal Task? ServerTask { get; private set; }
 
@@ -178,6 +180,8 @@ namespace ImageConverterServer
         {
             if (request.HttpMethod == "GET")
             {
+                _stopwatch.Restart();
+
                 byte[] content;
 
                 try
@@ -240,7 +244,9 @@ namespace ImageConverterServer
                 response.ContentLength64 = content.LongLength;
                 await response.OutputStream.WriteAsync(content).ConfigureAwait(false);
 
-                OnResponse(request.RemoteEndPoint, $"A converted image sent successfully.");
+                _stopwatch.Stop();
+
+                OnResponse(request.RemoteEndPoint, $"A converted image sent successfully({_stopwatch.ElapsedMilliseconds}ms).");
             }
         }
     }
