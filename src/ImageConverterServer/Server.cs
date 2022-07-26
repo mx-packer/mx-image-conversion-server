@@ -1,4 +1,5 @@
 ﻿using ImageConverterServer.Utilities;
+using LazyCache;
 using Serilog;
 using System;
 using System.Collections.Generic;
@@ -14,15 +15,26 @@ namespace ImageConverterServer
 {
     internal class Server : IDisposable
     {
+        #region ::Variables::
+
+        private readonly Stopwatch _stopwatch = new();
         private readonly HttpListener _listener = new();
         private readonly TaskCompletionSource<bool> _cancellationSource = new();
-        private readonly Stopwatch _stopwatch = new Stopwatch();
 
         internal Task? ServerTask { get; private set; }
 
         internal event Action<IPEndPoint, string?> OnResponse = delegate { };
-
         internal event Action<Exception, string?> OnException = delegate { };
+
+        #endregion
+
+        #region ::In-memory Caching::
+
+        IAppCache _cache = new CachingService();
+
+        #endregion
+
+        #region ::Controllers::
 
         internal Task Open(int port)
         {
@@ -45,6 +57,10 @@ namespace ImageConverterServer
             _cancellationSource.TrySetResult(false);
             GC.SuppressFinalize(this);
         }
+
+        #endregion
+
+        #region ::Server Logics::
 
         private async Task CreateProcessingLoopAsync()
         {
@@ -176,19 +192,53 @@ namespace ImageConverterServer
             }
         }
 
+        private async Task<byte[]> ConvertToAvif(string path, int q, int effort, bool lossless, bool useSubsampling)
+        {
+            var task = Task.Run(() =>
+            {
+                using (MemoryStream stream = new MemoryStream())
+                {
+                    ImageProcessor.ConvertToAvif(stream, path!, q: q, effort: effort, lossless: lossless, useSubsampling: useSubsampling);
+                    return stream.ToArray();
+                }
+            });
+
+            return await task;
+        }
+
+        private async Task<byte[]> ConvertToPng(string path, int q, int effort, int compression, bool interlace)
+        {
+            var task = Task.Run(() =>
+            {
+                using (MemoryStream stream = new MemoryStream())
+                {
+                    ImageProcessor.ConvertToPng(stream, path!, q: q, effort: effort, compression: compression, interlace: interlace);
+                    return stream.ToArray();
+                }
+            });
+
+            return await task;
+        }
+
         private async Task SendConvertedImageAsync(HttpListenerRequest request, HttpListenerResponse response)
         {
             if (request.HttpMethod == "GET")
             {
                 _stopwatch.Restart();
 
-                byte[] content;
+                byte[]? content;
 
                 try
                 {
                     var queryValues = request.QueryString;
                     string? type = queryValues.Get("type")?.ToLower();
                     string? path = queryValues.Get("path");
+                    int? cacheDuration = int.Parse(queryValues.Get("cachedn") ?? "1");
+
+                    if (cacheDuration <= 0)
+                    {
+                        cacheDuration = 1;
+                    }
 
                     switch (type)
                     {
@@ -196,17 +246,16 @@ namespace ImageConverterServer
                             {
                                 response.ContentType = "image/avif";
 
+                                // Get settings.
                                 int q = int.Parse(queryValues.Get("q") ?? "60");
                                 int effort = int.Parse(queryValues.Get("effort") ?? "1");
                                 bool lossless = ParseBoolean(int.Parse(queryValues.Get("lossless") ?? "1"));
                                 bool useSubsampling = ParseBoolean(int.Parse(queryValues.Get("uss") ?? "0"));
 
-                                using (MemoryStream stream = new MemoryStream())
-                                {
-                                    Log.Information($"Conversion Settings : Type({type}), Path({path}), Q({q}), Effort({effort}), Lossless({lossless}), UseSubsampling({useSubsampling})");
-                                    ImageProcessor.ConvertToAvif(stream, path!, q: q, effort: effort, lossless: lossless, useSubsampling: useSubsampling);
-                                    content = stream.ToArray();
-                                }
+                                Log.Information($"Conversion Settings : Type({type}), Path({path}), Q({q}), Effort({effort}), Lossless({lossless}), UseSubsampling({useSubsampling})");
+
+                                // Convert the image or get from the cache.
+                                content = await _cache.GetOrAddAsync<byte[]>(path, () => ConvertToAvif(path!, q, effort, lossless, useSubsampling), DateTimeOffset.Now.AddMinutes((double)cacheDuration), ExpirationMode.LazyExpiration);
 
                                 break;
                             }
@@ -214,17 +263,16 @@ namespace ImageConverterServer
                             {
                                 response.ContentType = "image/png";
 
+                                // Get settings.
                                 int q = int.Parse(queryValues.Get("q") ?? "80");
                                 int effort = int.Parse(queryValues.Get("effort") ?? "4");
                                 int compression = int.Parse(queryValues.Get("compression") ?? "6");
                                 bool interlace = ParseBoolean(int.Parse(queryValues.Get("interlace") ?? "1"));
 
-                                using (MemoryStream stream = new MemoryStream())
-                                {
-                                    Log.Information($"Conversion Settings : Type({type}), Path({path}), Q({q}), Effort({effort}), Compression({compression}), Interlace({interlace})");
-                                    ImageProcessor.ConvertToPng(stream, path!, q: q, effort: effort, compression: compression, interlace: interlace);
-                                    content = stream.ToArray();
-                                }
+                                Log.Information($"Conversion Settings : Type({type}), Path({path}), Q({q}), Effort({effort}), Compression({compression}), Interlace({interlace})");
+
+                                // Convert the image or get from the cache.
+                                content = await _cache.GetOrAddAsync<byte[]>(path, () => ConvertToPng(path!, q, effort, compression, interlace), DateTimeOffset.Now.AddMinutes((double)cacheDuration), ExpirationMode.LazyExpiration);
 
                                 break;
                             }
@@ -249,5 +297,7 @@ namespace ImageConverterServer
                 OnResponse(request.RemoteEndPoint, $"A converted image sent successfully({_stopwatch.ElapsedMilliseconds}ms).");
             }
         }
+
+        #endregion
     }
 }
