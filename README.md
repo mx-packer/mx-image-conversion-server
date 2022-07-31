@@ -8,11 +8,6 @@ MX Image Conversion Server
 ┣━ convert
    ┣━ avif
    ┗━ png
-┣━ configs
-   ┣━ general
-   ┣━ caching
-   ┣━ avif
-   ┗━ png
 ┣━ error.html
 ┗━ index.html
 ```
