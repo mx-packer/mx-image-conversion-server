@@ -6,6 +6,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Platforms>AnyCPU;x64;x86</Platforms>
+    <Version>1.2.0</Version>
+    <Authors>MX Packer Contributors</Authors>
+    <Company>MX Packer</Company>
+    <Product>MX Packer</Product>
+    <Description>An Image conversion server for MX Packer Agents</Description>
+    <Copyright>Copyright (c) 2022 MX Packer Contributors</Copyright>
+    <PackageId>ImageConversionServer</PackageId>
   </PropertyGroup>
 
   <ItemGroup>
