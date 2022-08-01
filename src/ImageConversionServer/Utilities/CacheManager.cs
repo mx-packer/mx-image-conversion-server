@@ -14,13 +14,13 @@ namespace ImageConversionServer.Utilities
         
         internal IAsyncCache<string, byte[]> Storage { get; private set; }
 
-        internal CacheManager(int capacity)
+        internal CacheManager(int capacity, int duration = 10)
         {
             Capacity = capacity;
             Storage = new ConcurrentLruBuilder<string, byte[]>()
                 .WithCapacity(capacity)
                 .WithAtomicGetOrAdd()
-                .WithExpireAfterWrite(TimeSpan.FromMinutes(10))
+                .WithExpireAfterWrite(TimeSpan.FromMinutes(duration))
                 .AsAsyncCache()
                 .Build();
         }

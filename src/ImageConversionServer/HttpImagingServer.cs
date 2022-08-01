@@ -21,12 +21,10 @@ namespace ImageConversionServer
 
         private readonly Stopwatch _stopwatch = new Stopwatch();
 
-        private readonly HttpListener _listener = new();
-        private readonly TaskCompletionSource<bool> _cancellationSource = new();
+        private readonly HttpListener _listener = new HttpListener();
+        private readonly TaskCompletionSource<bool> _cancellationSource = new TaskCompletionSource<bool>();
 
-        private readonly CacheManager _cacheManager = new(100000);
-
-        internal int Port { get; private set; }
+        private readonly CacheManager? _cacheManager = null;
 
         internal Task? ServerTask { get; private set; }
 
@@ -35,14 +33,24 @@ namespace ImageConversionServer
 
         #endregion
 
+        #region ::Constructors::
+
+        internal HttpImagingServer()
+        {
+            if (Settings.Cache.UseCaching)
+            {
+                _cacheManager = new CacheManager(100000, Settings.Cache.Duration);
+            }
+        }
+
+        #endregion
+
         #region ::Controllers::
 
-        internal Task Open(int port)
+        internal Task Open()
         {
-            Port = port;
-
             _listener.Prefixes.Clear();
-            _listener.Prefixes.Add($"http://localhost:{port}/");
+            _listener.Prefixes.Add($"http://localhost:{Settings.General.Port}/");
             _listener.Start();
 
             // Create and start the loop.
@@ -114,9 +122,6 @@ namespace ImageConversionServer
                 case "/index.html":
                     await CreateIndexResponseAsync(request, response).ConfigureAwait(false);
                     break;
-                case "/settings/cache":
-                    await CreateCacheSettingsApiResponseAsync(request, response).ConfigureAwait(false);
-                    break;
                 case "/settings/avif":
                     await CreateAvifSettingsApiResponseAsync(request, response).ConfigureAwait(false);
                     break;
@@ -130,6 +135,8 @@ namespace ImageConversionServer
                     response.AddHeader("Cache-Control", "Max-Age=99999");
                     response.ContentType = "image/x-icon";
                     break;
+                case "/error":
+                case "/error.html":
                 default:
                     await CreateErrorResponseAsync(request, response, 404, "FILE NOT FOUND", "The page you are looking for might have been removed had its name changed or is temporarily unavailable.", "HOME PAGE", "/").ConfigureAwait(false);
                     break;
@@ -140,7 +147,7 @@ namespace ImageConversionServer
 
         private async Task CreateIndexResponseAsync(HttpListenerRequest request, HttpListenerResponse response)
         {
-            byte[] content;
+            byte[] content = Array.Empty<byte>();
 
             string html = string.Empty;
 
@@ -150,7 +157,7 @@ namespace ImageConversionServer
             {
                 StringFormatter formatter = new StringFormatter(await reader.ReadToEndAsync().ConfigureAwait(false));
                 formatter.Add("@version", (Assembly.GetExecutingAssembly().GetName().Version!).ToString());
-                formatter.Add("@port", Port);
+                formatter.Add("@port", Settings.General.Port);
 
                 html = formatter.ToString();
             }
@@ -167,7 +174,7 @@ namespace ImageConversionServer
 
         private async Task CreateErrorResponseAsync(HttpListenerRequest request, HttpListenerResponse response, int statusCode, string title, string message, string action, string actionLink)
         {
-            byte[] content;
+            byte[] content = Array.Empty<byte>();
 
             string html = string.Empty;
 
@@ -195,63 +202,11 @@ namespace ImageConversionServer
             OnResponsed(request.RemoteEndPoint, $"The request has been processed.");
         }
 
-        private async Task CreateCacheSettingsApiResponseAsync(HttpListenerRequest request, HttpListenerResponse response)
-        {
-            byte[] content;
-
-            Status status;
-
-            var parameters = request.QueryString;
-
-            try
-            {
-                bool useCaching = false;
-
-                if (bool.TryParse(parameters.Get("use_caching"), out useCaching))
-                {
-                    Settings.Cache.UseCaching = useCaching;
-                }
-                else
-                {
-                    throw new InvalidDataException("An invalid parameter has been entered.");
-                }
-
-                status = new Status("S000", "Successfully processed.");
-
-                Log.Information($"Cache settings have been changed(Use Caching : {useCaching}).");
-            }
-            catch (Exception ex)
-            {
-                string errorCode = string.Empty;
-                string errorMessage = string.Empty;
-
-                if (string.IsNullOrEmpty(parameters.Get("use_caching")))
-                {
-                    errorCode = "S001";
-                    errorMessage = "The query parameter type does not match(use_caching).";
-                }
-
-                status = new Status(errorCode, errorMessage);
-
-                OnException(ex, errorMessage);
-            }
-
-            string json = JsonSerializer.Serialize(status);
-            content = Encoding.UTF8.GetBytes(json);
-
-            response.StatusCode = string.Equals(status.Code, "S000", StringComparison.OrdinalIgnoreCase) ? 200 : 500;
-            response.ContentType = "application/json; charset=UTF-8";
-            response.ContentLength64 = content.LongLength;
-            await response.OutputStream.WriteAsync(content).ConfigureAwait(false);
-
-            OnResponsed(request.RemoteEndPoint, $"The request has been processed.");
-        }
-
         private async Task CreateAvifSettingsApiResponseAsync(HttpListenerRequest request, HttpListenerResponse response)
         {
-            byte[] content;
+            byte[] content = Array.Empty<byte>();
 
-            Status status;
+            Status? status = null;
 
             var parameters = request.QueryString;
 
@@ -349,9 +304,9 @@ namespace ImageConversionServer
 
         private async Task CreatePngSettingsApiResponseAsync(HttpListenerRequest request, HttpListenerResponse response)
         {
-            byte[] content;
+            byte[] content = Array.Empty<byte>();
 
-            Status status;
+            Status? status = null;
 
             var parameters = request.QueryString;
 
@@ -451,7 +406,7 @@ namespace ImageConversionServer
         {
             if (request.HttpMethod == "GET")
             {
-                byte[] content;
+                byte[] content = Array.Empty<byte>();
 
                 try
                 {
@@ -467,14 +422,17 @@ namespace ImageConversionServer
                             {
                                 response.ContentType = "image/avif";
 
-                                if (!_cacheManager.Storage.TryGet(filePath!, out content))
+                                if (!Settings.Cache.UseCaching || _cacheManager?.Storage.TryGet(filePath!, out content) == false)
                                 {
                                     using (MemoryStream stream = new MemoryStream())
                                     {
                                         ImageProcessor.ConvertToAvif(stream, filePath!, q: Settings.Avif.Q, effort: Settings.Avif.Effort, lossless: Settings.Avif.UseLossless, useSubsampling: Settings.Avif.UseSubsampling);
                                         content = stream.ToArray();
 
-                                        _cacheManager.Storage.AddOrUpdate(filePath!, content);
+                                        if (Settings.Cache.UseCaching)
+                                        {
+                                            _cacheManager?.Storage.AddOrUpdate(filePath!, content);
+                                        }
                                     }
                                 }
 
@@ -484,14 +442,17 @@ namespace ImageConversionServer
                             {
                                 response.ContentType = "image/png";
 
-                                if (!_cacheManager.Storage.TryGet(filePath!, out content))
+                                if (!Settings.Cache.UseCaching || _cacheManager?.Storage.TryGet(filePath!, out content) == false)
                                 {
                                     using (MemoryStream stream = new MemoryStream())
                                     {
                                         ImageProcessor.ConvertToPng(stream, filePath!, q: Settings.Png.Q, effort: Settings.Png.Effort, compression: Settings.Png.CompressionLevel, interlace: Settings.Png.UseInterlace);
                                         content = stream.ToArray();
 
-                                        _cacheManager.Storage.AddOrUpdate(filePath!, content);
+                                        if (Settings.Cache.UseCaching)
+                                        {
+                                            _cacheManager?.Storage.AddOrUpdate(filePath!, content);
+                                        }
                                     }
                                 }
 
@@ -535,7 +496,7 @@ namespace ImageConversionServer
                         errorMessage = $"An unknown error occurred while converting the image.\r\n{ex.Message}\r\n{ex.StackTrace}";
                     }
 
-                    var status = new Status(errorCode, errorMessage);
+                    Status status = new Status(errorCode, errorMessage);
 
                     string json = JsonSerializer.Serialize(status);
                     content = Encoding.UTF8.GetBytes(json);
