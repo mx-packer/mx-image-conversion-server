@@ -11,11 +11,23 @@ namespace ImageConversionServer
         [Option('p', "port", HelpText = "Set a port that the ICS will use(0~65535).", Default = 49696)]
         public int Port { get; set; }
 
+        [Option('t', "max-threads", HelpText = "Set the maximum number of threads.(2~100).", Default = 8)]
+        public int MaxThreads { get; set; }
+
+        [Option('w', "use-toplevel-wildcard", HelpText = "Set whether or not to enable access to this server from any address directed to this computer.", Default = false)]
+        public bool UseTopLevelWildcard { get; set; }
+
         [Option('c', "use-caching", HelpText = "Set whether or not to use cache.", Default = true)]
         public bool UseCaching { get; set; }
 
         [Option('d', "cache-duration", HelpText = "Sets the cache duration(unit: min, 1~60).", Default = 10)]
         public int CacheDuration { get; set; }
+
+        [Option('l', "use-preloading", HelpText = "Set whether or not to use preloading.", Default = false)]
+        public bool UsePreloading { get; set; }
+
+        [Option('f', "preloading-conversion-format", HelpText = "Set the format of the image to be cached(avif, png).")]
+        public string? PreloadingConversionFormat { get; set; }
 
         [Option('i', "items-to-preload", HelpText = "Set the files(or directories) to be preloaded. Each item is separated by '|(Vertical Bar)' letter.", Default = null, Separator = '|', Max = 100)]
         public IEnumerable<string>? ItemsToPreload { get; set; }
@@ -82,10 +94,14 @@ namespace ImageConversionServer
                    .WithParsed<CommandlineOptions>(o =>
                    {
                        Settings.General.Port = o.Port;
+                       Settings.General.MaxThreads = o.MaxThreads;
+                       Settings.General.UseTopLevelWildcard = o.UseTopLevelWildcard;
 
                        Settings.Cache.UseCaching = o.UseCaching;
                        Settings.Cache.Duration = o.CacheDuration;
-                       Settings.Cache.ItemsToPreload = o.ItemsToPreload != null ? o.ItemsToPreload.ToList() : new List<string>();
+                       Settings.Cache.UsePreloading = o.UsePreloading;
+                       Settings.Cache.PreloadingConversionFormat = o.PreloadingConversionFormat!;
+                       Settings.Cache.ItemsToPreload = o.ItemsToPreload?.ToList() ?? new List<string>();
 
                        Settings.Avif.Q = o.AvifQ;
                        Settings.Avif.Effort = o.AvifEffort;
@@ -100,11 +116,39 @@ namespace ImageConversionServer
                        options = o;
                    });
 
+            if (options == null)
+            {
+                Environment.Exit(0);
+            }
+
             // Check parameters.
             if (NetworkHelper.IsLocalPortBusy(Settings.General.Port))
             {
                 Log.Fatal($"The port {Settings.General.Port} is busy.");
                 Environment.Exit(1);
+            }
+
+            if (Settings.General.MaxThreads < 2 || Settings.General.MaxThreads > 100)
+            {
+                Log.Fatal($"The max threads is out of range(2~100).");
+                Environment.Exit(1);
+            }
+
+            if (Settings.General.UseTopLevelWildcard)
+            {
+                if (PrivilegeHelper.IsAdministrator())
+                {
+                    Settings.General.Prefix = "http://+:{0}/";
+                }
+                else
+                {
+                    Log.Fatal($"Please restart the application with administrator privilege.");
+                    Environment.Exit(1);
+                }
+            }
+            else
+            {
+                Settings.General.Prefix = "http://localhost:{0}/";
             }
 
             if (Settings.Cache.Duration <= 0 || Settings.Cache.Duration > 60)
@@ -113,14 +157,34 @@ namespace ImageConversionServer
                 Environment.Exit(1);
             }
 
-            if (Settings.Cache.ItemsToPreload != null)
+            if (Settings.Cache.UsePreloading)
             {
-                foreach (string item in Settings.Cache.ItemsToPreload)
+                // Check caching system.
+                if (!Settings.Cache.UseCaching)
                 {
-                    if (!IndexingHelper.isExists(item))
+                    Log.Fatal("Preloading is only available when the use-caching is enabled.");
+                    Environment.Exit(1);
+                }
+
+                // Check the format.
+                string[] formats = new string[] { "avif", "png" };
+
+                if (!formats.Contains(Settings.Cache.PreloadingConversionFormat, StringComparer.OrdinalIgnoreCase))
+                {
+                    Log.Fatal($"the preloading conversion format is not valid.");
+                    Environment.Exit(1);
+                }
+
+                // Check items.
+                if (Settings.Cache.ItemsToPreload != null)
+                {
+                    foreach (string item in Settings.Cache.ItemsToPreload)
                     {
-                        Log.Fatal($"One or more items do not exist.");
-                        Environment.Exit(1);
+                        if (!IndexingHelper.isExists(item))
+                        {
+                            Log.Fatal($"A item to preload do not exist(PATH: {item}).");
+                            Environment.Exit(1);
+                        }
                     }
                 }
             }
@@ -163,11 +227,11 @@ namespace ImageConversionServer
         {
             try
             {
-                using (var server = new HttpImagingServerV2(8))
+                using (var server = new HttpImagingServer(Settings.General.MaxThreads)) // 4, 8, 16 T
                 {
                     Log.Information($"The server is listening on http://localhost:{Settings.General.Port}.");
 
-                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.ForegroundColor = ConsoleColor.Blue;
                     Console.WriteLine("Enter 'stop' to stop the server.");
                     Console.ForegroundColor = ConsoleColor.White;
 

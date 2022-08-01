@@ -12,6 +12,12 @@ namespace ImageConversionServer
         internal static class General
         {
             internal static int Port { get; set; } = 49696;
+
+            internal static int MaxThreads { get; set; } = 8;
+
+            internal static bool UseTopLevelWildcard { get; set; } = false;
+
+            internal static string Prefix { get; set; } = "http://localhost:{0}/";
         }
         internal static class Cache
         {
@@ -19,7 +25,11 @@ namespace ImageConversionServer
 
             internal static int Duration { get; set; } = 10; // Unit: minutes
 
-            internal static List<string>? ItemsToPreload { get; set; } = null;
+            internal static bool UsePreloading { get; set; } = false;
+
+            internal static string PreloadingConversionFormat { get; set; } = "png";
+
+            internal static List<string> ItemsToPreload { get; set; } = new List<string>();
         }
 
         internal static class Avif

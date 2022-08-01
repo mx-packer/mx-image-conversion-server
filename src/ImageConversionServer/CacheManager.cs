@@ -6,12 +6,12 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace ImageConversionServer.Utilities
+namespace ImageConversionServer
 {
     internal class CacheManager
     {
         internal int Capacity { get; private set; }
-        
+
         internal IAsyncCache<string, byte[]> Storage { get; private set; }
 
         internal CacheManager(int capacity, int duration = 10)
