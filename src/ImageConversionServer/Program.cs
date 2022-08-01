@@ -47,11 +47,11 @@ namespace ImageConversionServer
 
     public class Program
     {
-        public static async Task Main(string[] args)
+        public static void Main(string[] args)
         {
             CreateLogger();
             CreateArguments(args);
-            await CreateServer();
+            CreateServer();
         }
 
         private static void CreateLogger()
@@ -62,10 +62,9 @@ namespace ImageConversionServer
 
             // Create a new logger.
             string fileName = @"data\logs\log-.log";
-            string outputTemplateString = "{Timestamp:HH:mm:ss.ms} (Thread #{ThreadId}) [{Level}] {Message}{NewLine}{Exception}";
+            string outputTemplateString = "{Timestamp:HH:mm:ss.ms} [{Level}] {Message}{NewLine}{Exception}";
 
             var log = new LoggerConfiguration()
-                .Enrich.WithProperty("ThreadId", Thread.CurrentThread.ManagedThreadId)
                 .WriteTo.Console(restrictedToMinimumLevel: LogEventLevel.Verbose, outputTemplate: outputTemplateString)
                 .WriteTo.File(fileName, restrictedToMinimumLevel: LogEventLevel.Warning, outputTemplate: outputTemplateString, rollingInterval: RollingInterval.Day, rollOnFileSizeLimit: true, fileSizeLimitBytes: 100000)
                 .CreateLogger();
@@ -160,28 +159,35 @@ namespace ImageConversionServer
             Log.Information($"Arguments have been applied: {Parser.Default.FormatCommandLine(options)}");
         }
 
-        private static async Task CreateServer()
+        private static void CreateServer()
         {
             try
             {
-                using (var server = new HttpImagingServer())
+                using (var server = new HttpImagingServerV2(8))
                 {
-                    // Add event subscribers.
-                    server.OnResponsed += (IPEndPoint endpoint, string? message) =>
-                    {
-                        Log.Information($"(Request from {endpoint}) {message}");
-                    };
-
-                    server.OnException += (Exception exception, string? message) =>
-                    {
-                        Log.Warning(exception, message!);
-                    };
-
-                    // Open the server.
-                    Task serverTask = Task.Run(() => server.Open());
                     Log.Information($"The server is listening on http://localhost:{Settings.General.Port}.");
 
-                    await serverTask.ConfigureAwait(false);
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine("Enter 'stop' to stop the server.");
+                    Console.ForegroundColor = ConsoleColor.White;
+
+                    server.Start(Settings.General.Port);
+
+                    for (bool coninute = true; coninute;)
+                    {
+                        string input = Console.ReadLine()?.ToLower()!;
+
+                        switch (input)
+                        {
+                            case "stop":
+                                server.Stop();
+                                coninute = false;
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+
                     Log.Information($"The server has been closed.");
                 }
             }
@@ -192,6 +198,7 @@ namespace ImageConversionServer
                 if (ex.ErrorCode == EC_CODE_ACCESS_DENIED)
                 {
                     Log.Fatal("Please restart the application with administrator privilege.");
+                    Environment.Exit(1);
                 }
             }
             catch (Exception ex)
