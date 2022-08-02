@@ -176,7 +176,7 @@ namespace ImageConversionServer
                 }
 
                 // Check items.
-                if (Settings.Cache.ItemsToPreload != null)
+                if (Settings.Cache.ItemsToPreload != null && Settings.Cache.ItemsToPreload.Count != 0)
                 {
                     foreach (string item in Settings.Cache.ItemsToPreload)
                     {
