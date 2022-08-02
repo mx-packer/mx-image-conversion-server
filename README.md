@@ -5,9 +5,10 @@ MX Image Conversion Server(MX ICS) is a server application which provides image 
 ## Structure
 ```
 MX Image Conversion Server
-┣━ convert
+┣━ settings
    ┣━ avif
    ┗━ png
+┣━ convert
 ┣━ error.html
 ┗━ index.html
 ```
